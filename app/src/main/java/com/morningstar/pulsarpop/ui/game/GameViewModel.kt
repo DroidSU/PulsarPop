@@ -3,6 +3,7 @@ package com.morningstar.pulsarpop.ui.game
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.morningstar.pulsarpop.data.PreferencesRepository
+import com.morningstar.pulsarpop.data.room.GameRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -14,6 +15,7 @@ import kotlin.random.Random
 
 @HiltViewModel
 class GameViewModel @Inject constructor(
+    private val gameRepository: GameRepository,
     private val preferencesRepository: PreferencesRepository
 ) : ViewModel() {
 
@@ -23,27 +25,45 @@ class GameViewModel @Inject constructor(
     private var nextTileId = 1L
 
     init {
+        viewModelScope.launch {
+            gameRepository.gameStatsFlow.collect { stats ->
+                _uiState.update { current ->
+                    current.copy(
+                        highScore = stats.highScore
+                    )
+                }
+            }
+        }
         startNewGame()
     }
 
     fun startNewGame() {
-        val rows = 6
-        val cols = 6
-        val colorCount = 3
-        val initialGrid = generateGrid(rows, cols, colorCount)
-        _uiState.value = GameUiState(
-            grid = initialGrid,
-            rows = rows,
-            cols = cols,
-            score = 0,
-            level = 1,
-            targetScore = 800,
-            colorCount = colorCount,
-            isGameOver = false,
-            isLevelComplete = false,
-            clearedCount = 0,
-            targetCleared = 20
-        )
+        viewModelScope.launch {
+            val savedLevel = 1
+            val rows = 6
+            val cols = 6
+            val colorCount = 3
+            val initialGrid = generateGrid(rows, cols, colorCount)
+            
+            _uiState.update { current ->
+                current.copy(
+                    grid = initialGrid,
+                    rows = rows,
+                    cols = cols,
+                    score = 0,
+                    level = savedLevel,
+                    targetScore = 400,
+                    colorCount = colorCount,
+                    isGameOver = false,
+                    isLevelComplete = false,
+                    clearedCount = 0,
+                    targetCleared = 20,
+                    comboCount = 0,
+                    lastPoppedPoints = 0
+                )
+            }
+            gameRepository.saveCurrentLevel(savedLevel)
+        }
     }
 
     fun onTileClicked(row: Int, col: Int) {
@@ -61,28 +81,58 @@ class GameViewModel @Inject constructor(
             var newGrid = removeCluster(grid, cluster)
             newGrid = applyGravityAndRefill(newGrid, currentState.colorCount)
 
-            val pointsEarned = cluster.size * cluster.size * 15
+            // Balanced scoring: linear base points (cluster size * 15) and combo capped at 5x.
+            // Small clusters (size 2) reset combo, larger clusters (size >= 3) increment combo up to 5x.
+            val newCombo = if (cluster.size >= 3) {
+                minOf(currentState.comboCount + 1, 5)
+            } else {
+                1
+            }
+            val basePoints = cluster.size * 15
+            val pointsEarned = basePoints * newCombo
             val newScore = currentState.score + pointsEarned
             val newClearedCount = currentState.clearedCount + cluster.size
+            val newHighScore = maxOf(currentState.highScore, newScore)
 
             val levelComplete = newClearedCount >= currentState.targetCleared
+
+            val breakdownText = if (newCombo > 1) {
+                "+$pointsEarned (${cluster.size}t × ${newCombo}x)"
+            } else {
+                "+$pointsEarned (${cluster.size}t)"
+            }
 
             _uiState.update {
                 it.copy(
                     grid = newGrid,
                     score = newScore,
+                    highScore = newHighScore,
                     clearedCount = newClearedCount,
-                    isLevelComplete = levelComplete
+                    isLevelComplete = levelComplete,
+                    comboCount = newCombo,
+                    lastPoppedPoints = pointsEarned,
+                    floatingScoreText = breakdownText
                 )
             }
 
+            // Persist in Room Database & Preferences
+            gameRepository.updateHighScoreAndLevel(newScore, currentState.level)
+            gameRepository.recordTilePops(cluster.size)
             preferencesRepository.saveHighScore(newScore)
 
             if (!levelComplete && isBoardStuck(newGrid, currentState.colorCount)) {
                 val shuffledGrid = generateGrid(currentState.rows, currentState.cols, currentState.colorCount)
-                _uiState.update { it.copy(grid = shuffledGrid) }
+                _uiState.update { it.copy(grid = shuffledGrid, comboCount = 0, showShuffleBanner = true) }
             }
         }
+    }
+
+    fun showExitConfirmationDialog(show: Boolean) {
+        _uiState.update { it.copy(showExitDialog = show) }
+    }
+
+    fun dismissShuffleBanner() {
+        _uiState.update { it.copy(showShuffleBanner = false) }
     }
 
     fun advanceLevel() {
@@ -92,20 +142,28 @@ class GameViewModel @Inject constructor(
         val cols = minOf(8, 6 + (nextLevel / 2))
         val colorCount = minOf(5, 3 + (nextLevel / 3))
         val targetCleared = 20 + (nextLevel * 5)
-        val targetScore = current.targetScore + (nextLevel * 500)
+        val targetScore = current.targetScore + (nextLevel * 300)
         val newGrid = generateGrid(rows, cols, colorCount)
 
-        _uiState.value = current.copy(
-            grid = newGrid,
-            rows = rows,
-            cols = cols,
-            level = nextLevel,
-            targetScore = targetScore,
-            colorCount = colorCount,
-            isLevelComplete = false,
-            clearedCount = 0,
-            targetCleared = targetCleared
-        )
+        viewModelScope.launch {
+            _uiState.update {
+                it.copy(
+                    grid = newGrid,
+                    rows = rows,
+                    cols = cols,
+                    level = nextLevel,
+                    targetScore = targetScore,
+                    colorCount = colorCount,
+                    isLevelComplete = false,
+                    clearedCount = 0,
+                    targetCleared = targetCleared,
+                    comboCount = 0,
+                    lastPoppedPoints = 0
+                )
+            }
+            gameRepository.saveCurrentLevel(nextLevel)
+            gameRepository.updateHighScoreAndLevel(current.score, nextLevel)
+        }
     }
 
     private fun generateGrid(rows: Int, cols: Int, colorCount: Int): List<List<Tile?>> {

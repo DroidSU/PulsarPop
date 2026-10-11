@@ -35,7 +35,11 @@ class GameActivity : ComponentActivity() {
                         onTileClick = { r, c -> viewModel.onTileClicked(r, c) },
                         onRestart = { viewModel.startNewGame() },
                         onNextLevel = { viewModel.advanceLevel() },
-                        onBackPressed = { finish() }
+                        onBackPressed = { viewModel.showExitConfirmationDialog(true) },
+                        onShowExitDialog = { viewModel.showExitConfirmationDialog(true) },
+                        onDismissExitDialog = { viewModel.showExitConfirmationDialog(false) },
+                        onConfirmExit = { finish() },
+                        onDismissShuffleBanner = { viewModel.dismissShuffleBanner() }
                     )
                 }
             }

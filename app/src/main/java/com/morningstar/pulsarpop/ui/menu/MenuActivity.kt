@@ -12,6 +12,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import com.morningstar.pulsarpop.ui.auth.AuthActivity
 import com.morningstar.pulsarpop.ui.game.GameActivity
 import com.morningstar.pulsarpop.ui.theme.PulsarPopTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -36,6 +37,10 @@ class MenuActivity : ComponentActivity() {
                         highScore = highScore,
                         onStartGame = {
                             val intent = Intent(this, GameActivity::class.java)
+                            startActivity(intent)
+                        },
+                        onOpenAuth = {
+                            val intent = Intent(this, AuthActivity::class.java)
                             startActivity(intent)
                         }
                     )

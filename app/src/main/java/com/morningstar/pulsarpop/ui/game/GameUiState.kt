@@ -12,11 +12,17 @@ data class GameUiState(
     val rows: Int = 6,
     val cols: Int = 6,
     val score: Int = 0,
+    val highScore: Int = 0,
     val level: Int = 1,
     val targetScore: Int = 1000,
     val colorCount: Int = 3,
     val isGameOver: Boolean = false,
     val isLevelComplete: Boolean = false,
     val clearedCount: Int = 0,
-    val targetCleared: Int = 25
+    val targetCleared: Int = 25,
+    val comboCount: Int = 0,
+    val lastPoppedPoints: Int = 0,
+    val showShuffleBanner: Boolean = false,
+    val showExitDialog: Boolean = false,
+    val floatingScoreText: String? = null
 )
